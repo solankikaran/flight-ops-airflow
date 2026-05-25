@@ -3,9 +3,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from airflow.sdk import get_current_context
+
 URL = "https://opensky-network.org/api/states/all"
 
-def run_bronze_ingestion(context: Context):
+def run_bronze_ingestion():
     response = requests.get(URL, timeout=30)
     response.raise_for_status()
     data = response.json()
@@ -16,9 +18,5 @@ def run_bronze_ingestion(context: Context):
 
     with open(path, "w") as f:
         json.dump(data, f)
-    
-    # XCOM
-    context["ti"].xcom_push(
-        key="bronze_file_path",
-        value = str(path)
-    )
+
+    return str(path)

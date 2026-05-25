@@ -14,3 +14,4 @@ docker-compose.yaml
 config
 plugins
 logs
+data
