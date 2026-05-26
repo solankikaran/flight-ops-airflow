@@ -12,6 +12,7 @@ if str(AIRFLOW_HOME) not in sys.path:
     sys.path.insert(0, str(AIRFLOW_HOME))
 
 from scripts.bronze_ingest import run_bronze_ingestion
+from scripts.silver_transform import run_silver_transform
 
 default_args = {
     "owner": "airflow",
@@ -31,9 +32,14 @@ def flight_ops_medallion_pipeline():
     @task
     def bronze():
         run_bronze_ingestion()
+
+    @task
+    def silver():
+        run_silver_transform()
     
-    bronze()
+    bronze_task = bronze()
+    silver_task = silver()
+
+    bronze_task >> silver_task
 
 flight_ops_medallion_pipeline()
-
-
