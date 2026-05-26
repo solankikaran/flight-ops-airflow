@@ -8,6 +8,9 @@ from airflow.sdk import get_current_context
 URL = "https://opensky-network.org/api/states/all"
 
 def run_bronze_ingestion():
+
+    context = get_current_context()
+
     response = requests.get(URL, timeout=30)
     response.raise_for_status()
     data = response.json()
@@ -19,4 +22,9 @@ def run_bronze_ingestion():
     with open(path, "w") as f:
         json.dump(data, f)
 
-    return str(path)
+    # return str(path)
+
+    context["ti"].xcom_push(
+        key = "bronze_file",
+        value = str(path)
+    )

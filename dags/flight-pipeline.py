@@ -30,7 +30,7 @@ def flight_ops_medallion_pipeline():
 
     @task
     def bronze():
-        return run_bronze_ingestion()
+        run_bronze_ingestion()
     
     bronze()
 
