@@ -17,14 +17,12 @@ def run_bronze_ingestion():
 
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
 
-    path = Path(f"/opt/airflow/data/bronze/flights_{timestamp}.json")
+    bronze_file = Path(f"/opt/airflow/data/bronze/flights_{timestamp}.json")
 
-    with open(path, "w") as f:
+    with open(bronze_file, "w") as f:
         json.dump(data, f)
-
-    # return str(path)
 
     context["ti"].xcom_push(
         key = "bronze_file",
-        value = str(path)
+        value = str(bronze_file)
     )

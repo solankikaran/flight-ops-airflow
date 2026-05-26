@@ -41,11 +41,11 @@ def run_silver_transform(**context):
     silver_path.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    silver_output_file = silver_path / f"flights_silver_{timestamp}.csv"
+    silver_file = silver_path / f"flights_silver_{timestamp}.csv"
 
-    df.to_csv(silver_output_file, index=False)
+    df.to_csv(silver_file, index=False)
 
     context["ti"].xcom_push(
         key = "silver_file",
-        value = str(silver_output_file)
+        value = str(silver_file)
     )
