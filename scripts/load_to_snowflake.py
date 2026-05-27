@@ -1,8 +1,10 @@
 import pandas as pd
 import snowflake.connector
 
+from datetime import datetime, timedelta
 from airflow.hooks.base import BaseHook
 from airflow.sdk import get_current_context
+from snowflake.connector.pandas_tools import write_pandas
 
 def load_gold_to_snowflake():
     
@@ -16,13 +18,17 @@ def load_gold_to_snowflake():
     if gold_file_path is None:
         raise ValueError("Could not find gold file path in XCOM")
     
-    execution_date = context["data_interval_start"].strftime("%Y-%m-%d %H:%M:%S")
 
+    dt = datetime.now()
+    window_end = (dt.replace(minute=30, second=0, microsecond=0) if dt.minute < 30 else dt.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+    window_end = window_end.strftime("%Y-%m-%d %H:%M:%S")
     df = pd.read_csv(gold_file_path)
+    df.columns = [c.upper() for c in df.columns]
+    df["WINDOW_START"] = window_end
 
     conn = BaseHook.get_connection("flights_snowflake")
 
-    sf_conn = snowflake.connector.connect(
+    with snowflake.connector.connect(
         user      = conn.login,
         password  = conn.password,
         account   = conn.extra_dejson["account"],
@@ -30,41 +36,39 @@ def load_gold_to_snowflake():
         database  = conn.extra_dejson.get("database"),
         schema    = conn.schema,
         role      = conn.extra_dejson.get("role")
-    )
+    ) as sf_conn:
 
-    merge_sql = """
-    
-        MERGE INTO FLIGHTS_KPI tgt
-        USING (
-            SELECT
-                TO_TIMESTAMP(%s) AS WINDOW_START,
-                %s AS ORIGIN_COUNTRY,
-                %s AS TOTAL_FLIGHTS,
-                %s AS AVG_VELOCITY,
-                %s AS ON_GROUND
-        ) src
-        ON tgt.WINDOW_START = src.WINDOW_START AND tgt.ORIGIN_COUNTRY = src.ORIGIN_COUNTRY
-        WHEN MATCHED THEN UPDATE 
-            SET
+        # write df to staging table
+        write_pandas(sf_conn, df, "STG_FLIGHTS_KPI")
+
+        merge_sql = """
+        
+            MERGE INTO FLIGHTS_KPI tgt
+            USING (
+                SELECT
+                    WINDOW_START,
+                    ORIGIN_COUNTRY,
+                    TOTAL_FLIGHTS,
+                    AVG_VELOCITY,
+                    ON_GROUND
+                FROM STG_FLIGHTS_KPI
+            ) src
+            ON tgt.WINDOW_START = src.WINDOW_START AND tgt.ORIGIN_COUNTRY = src.ORIGIN_COUNTRY
+
+            WHEN MATCHED THEN UPDATE SET
                 TOTAL_FLIGHTS = src.TOTAL_FLIGHTS,
                 AVG_VELOCITY = src.AVG_VELOCITY,
                 ON_GROUND = src.ON_GROUND,
                 LOAD_TIME = CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT (tgt.WINDOW_START, tgt.ORIGIN_COUNTRY, tgt.TOTAL_FLIGHTS, tgt.AVG_VELOCITY, tgt.ON_GROUND)
-        VALUES (src.WINDOW_START, src.ORIGIN_COUNTRY, src.TOTAL_FLIGHTS, src.AVG_VELOCITY, src.ON_GROUND);
-    """
 
-    with sf_conn.cursor() as cursor:
-        for _, row in df.iterrows():
-            cursor.execute(
-                merge_sql,
-                (
-                    execution_date,
-                    row["origin_country"],
-                    int(row["total_flights"]),
-                    float(row["avg_velocity"]),
-                    int(row["on_ground"]),
-                ),
-            )
+            WHEN NOT MATCHED THEN INSERT (tgt.WINDOW_START, tgt.ORIGIN_COUNTRY, tgt.TOTAL_FLIGHTS, tgt.AVG_VELOCITY, tgt.ON_GROUND, tgt.LOAD_TIME)
+            VALUES (src.WINDOW_START, src.ORIGIN_COUNTRY, src.TOTAL_FLIGHTS, src.AVG_VELOCITY, src.ON_GROUND, CURRENT_TIMESTAMP());
 
-    sf_conn.close()
+        """
+
+        with sf_conn.cursor() as cursor:
+            cursor.execute(merge_sql) 
+            print("MERGE completed successfully.") # merge
+
+            cursor.execute("""TRUNCATE TABLE STG_FLIGHTS_KPI""") # delete staging data after successful merge
+            print("TRUNCATED staging data successfully.")
