@@ -14,6 +14,7 @@ if str(AIRFLOW_HOME) not in sys.path:
 from scripts.bronze_ingest import run_bronze_ingestion
 from scripts.silver_transform import run_silver_transform
 from scripts.gold_aggregate import run_gold_aggregate
+from scripts.load_to_snowflake import load_gold_to_snowflake
 
 default_args = {
     "owner": "airflow",
@@ -42,11 +43,15 @@ def flight_ops_medallion_pipeline():
     def gold():
         run_gold_aggregate()
     
-    
+    @task
+    def load_to_snowflake():
+        load_gold_to_snowflake()
+        
     bronze_task = bronze()
     silver_task = silver()
     gold_task = gold()
+    load_to_snowflake_task = load_to_snowflake()
 
-    bronze_task >> silver_task >> gold_task
+    bronze_task >> silver_task >> gold_task >> load_to_snowflake_task
 
 flight_ops_medallion_pipeline()
